@@ -21,6 +21,7 @@ services:
     environment:
       TZ: Europe/Paris
       GENERIC_TIMEZONE: Europe/Paris
+      NODE_TLS_REJECT_UNAUTHORIZED=0
 
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres

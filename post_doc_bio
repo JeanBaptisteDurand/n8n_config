@@ -1,0 +1,514 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const html = $input.first().json.body ?? $input.first().json.data ?? '';\n\n// 1) main\nconst mainMatch = html.match(/<main[^>]*id=[\"']content[\"'][^>]*>([\\s\\S]*?)<\\/main>/i);\nconst mainHtml = mainMatch ? mainMatch[1] : html;\n\n// 2) tous les blocs text-editor -> container\nconst containers = [];\nconst re = /elementor-widget-text-editor[\\s\\S]*?<div class=\\\"elementor-widget-container\\\">([\\s\\S]*?)<\\/div>/gi;\n\nlet m;\nwhile ((m = re.exec(mainHtml)) !== null) {\n  containers.push(m[1]);\n}\n\n// 3) garder uniquement ceux qui contiennent des liens (annonces)\nconst announcementContainers = containers.filter(c => /<a\\b[^>]*href=/i.test(c));\n\n// fallback : si jamais on ne trouve rien, on prend tous les containers\nconst selected = announcementContainers.length ? announcementContainers : containers;\n\n// 4) HTML minimal à envoyer au LLM\nconst minimalHtml = selected.join(\"\\n\\n\").trim();\n\nreturn [{\n  json: {\n    source: 'MIO',\n    page_url: '<MIO_RECRUITMENT_PAGE_URL_1>',\n    main_text: minimalHtml\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [96, -272],
+      "id": "46e586bc-e287-4907-b3c4-27aa2f71fde1",
+      "name": "Extract job"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "<OPENAI_MODEL_ID_PLACEHOLDER>",
+          "mode": "list",
+          "cachedResultName": "<OPENAI_MODEL_CACHE_NAME_PLACEHOLDER>"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=You extract job offers from a French lab recruitment webpage.\n\nReturn STRICT JSON only (no markdown, no comments, no trailing commas).\nIf no offers exist, return [].\n\nOutput must be an array of objects. Each object MUST have exactly these keys:\n- source (string)                 // e.g., \"MIO\", \"SORBONNE\", \"IPSL\", \"umr-marbec\" (best match from the page)\n- title (string)\n- url (string)                    // MUST be the job offer page URL, not the listing page URL\n- posted_at (string|null)         // keep as found on page, otherwise null\n- summary (string)                // always generate; if little info -> shorter summary\n- deadline (string|null)          // as found, otherwise null\n- contact (string|null)           // email/name if found, otherwise null\n\nRules:\n1) Do not miss any job offer on the page. Include ALL offers, even if similar.\n2) The \"url\" field must be the offer’s own link, not page_url.\n3) URLs must be copied EXACTLY from the input HTML (same characters, same encoding, no rewriting, no cleaning).\n4) If links are relative, resolve them using page_url, but keep the exact path/query from HTML.\n5) If a field is not present, use null (except summary which is always a string).\n6) Do not invent details not present on the page. Summary can be inferred only from visible text.\n\njob : {{ JSON.stringify($json) }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [976, 16],
+      "id": "f79c480a-a151-4480-9150-8ee74a7f8bfe",
+      "name": "JSON new offer",
+      "credentials": {
+        "openAiApi": {
+          "id": "<N8N_OPENAI_CREDENTIAL_ID>",
+          "name": "<N8N_OPENAI_CREDENTIAL_NAME>"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [784, -304],
+      "id": "20c9128e-a570-41fd-b512-1558c2596817",
+      "name": "end"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "95ac32b4-5fcb-43de-910b-365229c034ed",
+              "leftValue": "={{ $json.main_text }}",
+              "rightValue": "Aucun poste ",
+              "operator": { "type": "string", "operation": "contains" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [592, 0],
+      "id": "ed4e864d-1056-4a9d-b7f6-d0dd261aa1c8",
+      "name": "If no job"
+    },
+    {
+      "parameters": {
+        "url": "<MIO_RECRUITMENT_PAGE_URL_1>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-112, -272],
+      "id": "1510d46e-a68f-4fac-9beb-951630a69708",
+      "name": "HTTP Request MIO"
+    },
+    {
+      "parameters": {
+        "operation": "rowNotExists",
+        "dataTableId": {
+          "__rl": true,
+          "value": "<N8N_DATATABLE_ID>",
+          "mode": "list",
+          "cachedResultName": "<N8N_DATATABLE_NAME>",
+          "cachedResultUrl": "<N8N_DATATABLE_URL>"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            { "keyName": "url", "keyValue": "={{ $json.url }}" }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [2512, 480],
+      "id": "dd693776-eb61-4c30-a70a-3352cc7e3afc",
+      "name": "If row does not exist"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "<N8N_DATATABLE_ID>",
+          "mode": "list",
+          "cachedResultName": "<N8N_DATATABLE_NAME>",
+          "cachedResultUrl": "<N8N_DATATABLE_URL>"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "source": "={{ $json.source }}",
+            "title": "={{ $json.title }}",
+            "url": "={{ $json.url }}",
+            "posted_at": "={{ $json.posted_at }}",
+            "summary": "={{ $json.summary }}",
+            "deadline": "={{ $json.deadline }}",
+            "contact": "={{ $json.contact }}",
+            "raw": "=={{JSON.stringify($json.raw)}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            { "id": "source", "displayName": "source", "required": false, "defaultMatch": false, "display": true, "type": "string", "readOnly": false, "removed": false },
+            { "id": "title", "displayName": "title", "required": false, "defaultMatch": false, "display": true, "type": "string", "readOnly": false, "removed": false },
+            { "id": "url", "displayName": "url", "required": false, "defaultMatch": false, "display": true, "type": "string", "readOnly": false, "removed": false },
+            { "id": "posted_at", "displayName": "posted_at", "required": false, "defaultMatch": false, "display": true, "type": "string", "readOnly": false, "removed": false },
+            { "id": "summary", "displayName": "summary", "required": false, "defaultMatch": false, "display": true, "type": "string", "readOnly": false, "removed": false },
+            { "id": "deadline", "displayName": "deadline", "required": false, "defaultMatch": false, "display": true, "type": "string", "readOnly": false, "removed": false },
+            { "id": "contact", "displayName": "contact", "required": false, "defaultMatch": false, "display": true, "type": "string", "readOnly": false, "removed": false },
+            { "id": "raw", "displayName": "raw", "required": false, "defaultMatch": false, "display": true, "type": "string", "readOnly": false, "removed": false }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [2768, 480],
+      "id": "4255f0a6-ccfc-4251-9227-588e515bd7f0",
+      "name": "Insert row"
+    },
+    {
+      "parameters": {
+        "fromEmail": "<FROM_EMAIL_ADDRESS>",
+        "toEmail": "<TO_EMAIL_ADDRESS>",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.email_body }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [3328, 208],
+      "id": "a27dcb9f-10bb-4cae-881f-66a73a2e4496",
+      "name": "Send email",
+      "webhookId": "<N8N_WEBHOOK_ID>",
+      "credentials": {
+        "smtp": {
+          "id": "<N8N_SMTP_CREDENTIAL_ID>",
+          "name": "<N8N_SMTP_CREDENTIAL_NAME>"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function node\n// Goal: for each output_text in input.data[*].output[*].content[*],\n// parse its .text (JSON string \"[{...}]\") and return 1 offer = 1 item.\n\nconst inputs = $input.all();\n\nfunction parseJsonArrayLoose(text) {\n  if (typeof text !== \"string\") return [];\n  const s = text.trim();\n  if (!s) return [];\n\n  // 1) strict parse\n  try {\n    const v = JSON.parse(s);\n    return Array.isArray(v) ? v : [];\n  } catch (_) {}\n\n  // 2) fallback: extract first [...] block\n  const m = s.match(/\\[[\\s\\S]*\\]/);\n  if (!m) return [];\n  try {\n    const v2 = JSON.parse(m[0]);\n    return Array.isArray(v2) ? v2 : [];\n  } catch (_) {\n    return [];\n  }\n}\n\nconst out = [];\n\nfor (const it of inputs) {\n  const root = it.json;\n\n  // Your sample: root is an array with { data: [...] }\n  const rootArr = Array.isArray(root) ? root : [root];\n\n  for (const r of rootArr) {\n    const dataArr = Array.isArray(r?.data) ? r.data : [];\n    for (const d of dataArr) {\n      const outputs = Array.isArray(d?.output) ? d.output : [];\n      for (const msg of outputs) {\n        const contents = Array.isArray(msg?.content) ? msg.content : [];\n        for (const c of contents) {\n          if (c?.type !== \"output_text\") continue;\n\n          const offers = parseJsonArrayLoose(c?.text);\n          for (const o of offers) {\n            if (!o || typeof o !== \"object\") continue;\n\n            out.push({\n              json: {\n                source: o.source ?? null,\n                title: o.title ?? null,\n                url: o.url ?? null,\n                posted_at: o.posted_at ?? null,\n                summary: o.summary ?? null,\n                deadline: o.deadline ?? null,\n                contact: o.contact ?? null,\n                // optional debug context\n                message_id: msg?.id ?? null\n              }\n            });\n          }\n        }\n      }\n    }\n  }\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 16],
+      "id": "92ef4ce5-e7f6-40fd-89d4-e8aa1d6c4f65",
+      "name": "Create n8n item"
+    },
+    {
+      "parameters": {
+        "jsCode": "const jobs = $input.all().map(i => i.json);\n\nif (jobs.length === 0) return [];\n\nconst source = jobs[0].source ?? 'Unknown';\n\nconst body = jobs.map((j) => {\n  return [\n    `New job at ${j.source ?? source}`,\n    `Title : ${j.title ?? ''}`,\n    `url : ${j.url ?? ''}`,\n    `posted_at : ${j.posted_at ?? ''}`,\n    `summary : ${j.summary ?? ''}`,\n    `deadline : ${j.deadline ?? ''}`,\n    `contact : ${j.contact ?? ''}`,\n    `------------------------------`\n  ].join('\\n');\n}).join('\\n\\n');\n\nreturn [{\n  json: {\n    subject: `🆕 ${jobs.length} new job(s) at ${source}`,\n    email_body: body\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3072, 208],
+      "id": "9cfe4b4d-c9aa-4fa8-b0c0-1bbc5ca490c2",
+      "name": "build single email"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "<GOOGLE_SHEETS_DOCUMENT_URL_OR_ID>",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "<GOOGLE_SHEETS_SHEET_NAME_OR_GID>",
+          "mode": "list",
+          "cachedResultName": "<GOOGLE_SHEETS_SHEET_CACHED_NAME>",
+          "cachedResultUrl": "<GOOGLE_SHEETS_SHEET_CACHED_URL>"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "source": "={{ $json.source }}",
+            "title": "={{ $json.title }}",
+            "url": "={{ $json.url }}",
+            "posted_at": "={{ $json.posted_at }}",
+            "summary": "={{ $json.summary }}",
+            "deadline": "={{ $json.deadline }}",
+            "contact": "={{ $json.contact }}",
+            "inserted_at": "={{ $now }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            { "id": "source", "displayName": "source", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "title", "displayName": "title", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "url", "displayName": "url", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "posted_at", "displayName": "posted_at", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "summary", "displayName": "summary", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "deadline", "displayName": "deadline", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "contact", "displayName": "contact", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "inserted_at", "displayName": "inserted_at", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [3056, 720],
+      "id": "d5f16271-8593-4b7b-8697-3c68447da10c",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleApi": {
+          "id": "<N8N_GOOGLE_API_CREDENTIAL_ID>",
+          "name": "<N8N_GOOGLE_API_CREDENTIAL_NAME>"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": { "interval": [{ "triggerAtHour": 20 }] }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [-480, 768],
+      "id": "b9bbf2d0-aa17-4859-91ff-fa9f8e98cde4",
+      "name": "Schedule Trigger 24h"
+    },
+    {
+      "parameters": { "numberInputs": 10 },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [368, -16],
+      "id": "922dab4f-9e5a-422c-87f9-8e6d6edaba9b",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $input.first().json.body ?? $input.first().json.data ?? '';\n\n// 1) main\nconst mainMatch = html.match(/<main[^>]*id=[\"']content[\"'][^>]*>([\\s\\S]*?)<\\/main>/i);\nconst mainHtml = mainMatch ? mainMatch[1] : html;\n\n// 2) tous les blocs text-editor -> container\nconst containers = [];\nconst re = /elementor-widget-text-editor[\\s\\S]*?<div class=\\\"elementor-widget-container\\\">([\\s\\S]*?)<\\/div>/gi;\n\nlet m;\nwhile ((m = re.exec(mainHtml)) !== null) {\n  containers.push(m[1]);\n}\n\n// 3) garder uniquement ceux qui contiennent des liens (annonces)\nconst announcementContainers = containers.filter(c => /<a\\b[^>]*href=/i.test(c));\n\n// fallback : si jamais on ne trouve rien, on prend tous les containers\nconst selected = announcementContainers.length ? announcementContainers : containers;\n\n// 4) HTML minimal à envoyer au LLM\nconst minimalHtml = selected.join(\"\\n\\n\").trim();\n\nreturn [{\n  json: {\n    source: 'MIO',\n    page_url: '<MIO_RECRUITMENT_PAGE_URL_2>',\n    main_text: minimalHtml\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [96, -96],
+      "id": "7eb2bf22-f32e-41e1-b87c-83cc063735e1",
+      "name": "Extract job1"
+    },
+    {
+      "parameters": {
+        "url": "<MIO_RECRUITMENT_PAGE_URL_2>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-112, -96],
+      "id": "f5cc9229-d451-48f3-b83f-897330825ac4",
+      "name": "HTTP Request MIO1"
+    },
+    {
+      "parameters": { "aggregate": "aggregateAllItemData", "options": {} },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1776, -256],
+      "id": "62b7934f-57cf-47f3-b076-cd72cd1c49f3",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $input.first().json.body ?? $input.first().json.data ?? '';\n\n// 1) Extraire le bloc principal qui contient les offres\nconst zoneMatch = html.match(\n  /<div[^>]+id=[\"']ametys-cms-zone-default[\"'][^>]*>[\\s\\S]*?<\\/div>\\s*<\\/div>\\s*<\\/div>\\s*<\\/div>/i\n);\n\n// Fallback (si le regex est trop strict) : prendre juste le div id=... jusqu'au prochain </div>\nconst simpleZoneMatch = html.match(\n  /<div[^>]+id=[\"']ametys-cms-zone-default[\"'][^>]*>[\\s\\S]*?<\\/div>/i\n);\n\nconst offersHtml = (zoneMatch?.[0] ?? simpleZoneMatch?.[0] ?? '').trim();\n\nreturn [{\n  json: {\n    source: 'SORBONNE',\n    page_url: '<SORBONNE_POSTDOC_PAGE_URL>',\n    main_text: offersHtml\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [96, 64],
+      "id": "45b55bbc-5512-4718-b4b3-b98ca16995ad",
+      "name": "Extract job Sorb"
+    },
+    {
+      "parameters": {
+        "url": "<SORBONNE_POSTDOC_PAGE_URL>",
+        "options": { "allowUnauthorizedCerts": true }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-112, 64],
+      "id": "4c78f834-fafc-4dae-b9c9-cabcbabab908",
+      "name": "HTTP Request Sorb"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $input.first().json.body ?? $input.first().json.data ?? '';\n\n// 1) Extraire la zone principale\nconst zoneMatch = html.match(\n  /<div[^>]+id=[\"']ametys-cms-zone-default[\"'][^>]*>[\\s\\S]*?<\\/div>\\s*<\\/div>\\s*<\\/div>\\s*<\\/div>/i\n);\n\nconst zoneHtml = zoneMatch?.[0] ?? '';\n\n// 2) À l'intérieur, extraire uniquement la table des annonces\nconst tableMatch = zoneHtml.match(\n  /<table[^>]+class=[\"']simple[\"'][^>]*>[\\s\\S]*?<\\/table>/i\n);\n\nconst offersHtml = (tableMatch?.[0] ?? '').trim();\n\nreturn [\n  {\n    json: {\n      source: 'SORBONNE',\n      page_url: '<SORBONNE_FACSCI_POSTES_PAGE_URL>',\n      main_text: offersHtml\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [96, 240],
+      "id": "1e2091fa-66f5-4ab4-b9ad-383b1822be81",
+      "name": "Extract job Sorb1"
+    },
+    {
+      "parameters": {
+        "url": "<SORBONNE_FACSCI_POSTES_PAGE_URL>",
+        "options": { "allowUnauthorizedCerts": true }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-112, 240],
+      "id": "c5fb752b-6be8-403c-9f83-e00375de86e7",
+      "name": "HTTP Request Sorb1"
+    },
+    {
+      "parameters": {
+        "url": "<UMR_MARBEC_RSS_FEED_URL>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [-128, 1056],
+      "id": "bd7ca955-3ed2-4952-98c7-8dfcfcd3ea73",
+      "name": "UMR"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "22a405ea-6ee2-4491-8f37-4c2139a52d1b", "name": "source", "value": "umr-marbec", "type": "string" },
+            { "id": "b6f672aa-29f6-4ba3-b691-7d98dcade66f", "name": "title", "value": "={{ $json.title }}", "type": "string" },
+            { "id": "28e1503f-f745-4f36-abea-588526de67f9", "name": "url", "value": "={{ $json.link }}", "type": "string" },
+            { "id": "3b23a9ac-7bf8-4469-af43-d82ca288c5d0", "name": "posted_at", "value": "={{ $json.pubDate }}", "type": "string" },
+            { "id": "78e4c268-dd56-4181-9f20-f78fc62185be", "name": "summary", "value": "={{ $json.contentSnippet }}", "type": "string" },
+            { "id": "a228db6e-0301-4c6c-9a3f-ac7a07ce4ac4", "name": "deadline", "value": "", "type": "string" },
+            { "id": "1f8a2149-a8af-42f3-b05e-4305a8761a0a", "name": "contact", "value": "={{ $json.creator }}", "type": "string" },
+            { "id": "cbb221b6-c061-4faa-8471-25a5830fa3e0", "name": "raw", "value": "={{ $json }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [96, 1056],
+      "id": "8cd79331-fa71-40bc-8d47-de2310ed6f02",
+      "name": "add source"
+    },
+    {
+      "parameters": { "mode": "combine", "combineBy": "combineByPosition", "options": {} },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [1296, -192],
+      "id": "3f4acee7-b7a9-407f-a5f8-2c8027d765b8",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "<OPENAI_MODEL_ID_PLACEHOLDER_VERIFIER>",
+          "mode": "list",
+          "cachedResultName": "<OPENAI_MODEL_CACHE_NAME_PLACEHOLDER_VERIFIER>"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=You are a strict JSON verifier and corrector.\n\nYou receive:\n1) A JSON array produced by a previous model (the \"extracted output\").\n2) A raw source object (the \"raw input\") containing the original text or feed items.\n\nYour task:\n- Verify that every field in the extracted output is consistent with the raw input.\n- Especially verify that every `url` field exists EXACTLY in the raw input (character-for-character match).\n- If a `url` does not appear exactly in the raw input, correct it using the raw input if possible.\n- If a value cannot be verified or corrected from the raw input, set it to null.\n- Do NOT invent new data.\n- Do NOT change correct data.\n- Do NOT add or remove objects from the array.\n- Only correct fields when necessary.\n\nRules:\n- Output MUST be a valid JSON array.\n- Output format MUST be exactly the same as the input extracted output (same keys, same structure).\n- Do not add comments, explanations, or markdown.\n- Only output the corrected JSON array.\n\nHere is the extracted output:\n{{ $json.output }}\n\nHere is the raw input:\n{{ $json.source }}\n{{ $json.main_text }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [1472, -224],
+      "id": "87173443-d2a3-450d-bbd8-2201d6609e2e",
+      "name": "Verify first pass",
+      "credentials": {
+        "openAiApi": {
+          "id": "<N8N_OPENAI_CREDENTIAL_ID>",
+          "name": "<N8N_OPENAI_CREDENTIAL_NAME>"
+        }
+      }
+    },
+    {
+      "parameters": { "aggregate": "aggregateAllItemData", "options": {} },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1808, 16],
+      "id": "1dd3752f-73be-41e8-a878-83afb0d1d033",
+      "name": "Aggregate1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $input.first().json.body ?? $input.first().json.data ?? '';\n\n// 1) Extract the archive container that holds all offers\nconst zoneMatch = html.match(\n  /<div[^>]+class=[\"'][^\"']*archive_ipsl[^\"']*[\"'][^>]*>[\\s\\S]*?<\\/div>\\s*<\\/div>/i\n);\n\n// 2) Fallback: just grab the first div with class archive_ipsl\nconst simpleZoneMatch = html.match(\n  /<div[^>]+class=[\"'][^\"']*archive_ipsl[^\"']*[\"'][^>]*>[\\s\\S]*?<\\/div>/i\n);\n\nconst offersHtml = (zoneMatch?.[0] ?? simpleZoneMatch?.[0] ?? '').trim();\n\nreturn [{\n  json: {\n    source: 'IPSL',\n    page_url: '<IPSL_JOBS_PAGE_URL>',\n    main_text: offersHtml\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [96, 432],
+      "id": "2d128a9f-dc4f-419a-ae2f-1b5752b628d5",
+      "name": "Extract job Sorb2"
+    },
+    {
+      "parameters": {
+        "url": "<IPSL_JOBS_PAGE_URL>",
+        "options": { "allowUnauthorizedCerts": true }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-112, 432],
+      "id": "dea8b927-bd08-4246-900a-6ebf6f0c667c",
+      "name": "HTTP Request ipsi"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [2304, 480],
+      "id": "311739f4-ccba-4e1f-b8c4-be3d9b35fab1",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [320, 1072],
+      "id": "75d96f3a-99af-410b-9c5b-c3f48930cceb",
+      "name": "Merge3"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Extract job": { "main": [[{ "node": "Merge1", "type": "main", "index": 0 }]] },
+    "If no job": { "main": [[{ "node": "end", "type": "main", "index": 0 }], [{ "node": "JSON new offer", "type": "main", "index": 0 }]] },
+    "HTTP Request MIO": { "main": [[{ "node": "Extract job", "type": "main", "index": 0 }]] },
+    "JSON new offer": { "main": [[{ "node": "Aggregate1", "type": "main", "index": 0 }]] },
+    "If row does not exist": { "main": [[{ "node": "Insert row", "type": "main", "index": 0 }]] },
+    "Insert row": { "main": [[{ "node": "build single email", "type": "main", "index": 0 }, { "node": "Append row in sheet", "type": "main", "index": 0 }]] },
+    "Create n8n item": { "main": [[{ "node": "Merge2", "type": "main", "index": 0 }]] },
+    "build single email": { "main": [[{ "node": "Send email", "type": "main", "index": 0 }]] },
+    "Schedule Trigger 24h": {
+      "main": [[
+        { "node": "HTTP Request MIO", "type": "main", "index": 0 },
+        { "node": "HTTP Request MIO1", "type": "main", "index": 0 },
+        { "node": "HTTP Request Sorb", "type": "main", "index": 0 },
+        { "node": "HTTP Request Sorb1", "type": "main", "index": 0 },
+        { "node": "UMR", "type": "main", "index": 0 },
+        { "node": "HTTP Request ipsi", "type": "main", "index": 0 }
+      ]]
+    },
+    "Merge1": { "main": [[{ "node": "If no job", "type": "main", "index": 0 }]] },
+    "HTTP Request MIO1": { "main": [[{ "node": "Extract job1", "type": "main", "index": 0 }]] },
+    "Extract job1": { "main": [[{ "node": "Merge1", "type": "main", "index": 1 }]] },
+    "Aggregate": { "main": [[]] },
+    "HTTP Request Sorb": { "main": [[{ "node": "Extract job Sorb", "type": "main", "index": 0 }]] },
+    "Extract job Sorb": { "main": [[{ "node": "Merge1", "type": "main", "index": 2 }]] },
+    "HTTP Request Sorb1": { "main": [[{ "node": "Extract job Sorb1", "type": "main", "index": 0 }]] },
+    "Extract job Sorb1": { "main": [[{ "node": "Merge1", "type": "main", "index": 3 }]] },
+    "UMR": { "main": [[{ "node": "add source", "type": "main", "index": 0 }]] },
+    "add source": { "main": [[{ "node": "Merge3", "type": "main", "index": 0 }]] },
+    "Merge": { "main": [[]] },
+    "Verify first pass": { "main": [[]] },
+    "Aggregate1": { "main": [[{ "node": "Create n8n item", "type": "main", "index": 0 }]] },
+    "HTTP Request ipsi": { "main": [[{ "node": "Extract job Sorb2", "type": "main", "index": 0 }]] },
+    "Extract job Sorb2": { "main": [[{ "node": "Merge1", "type": "main", "index": 4 }]] },
+    "Merge2": { "main": [[{ "node": "If row does not exist", "type": "main", "index": 0 }]] },
+    "Merge3": { "main": [[{ "node": "Merge2", "type": "main", "index": 1 }]] }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timeSavedPerExecution": 2
+  },
+  "versionId": "<N8N_WORKFLOW_VERSION_ID>",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "<N8N_INSTANCE_ID>"
+  },
+  "id": "<N8N_WORKFLOW_ID>",
+  "tags": []
+}
