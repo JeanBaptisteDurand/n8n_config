@@ -1,0 +1,19 @@
+# Sensitive config
+.mcp.json
+n8n_info.md
+ruben_doc.md
+conv_with-RUBEN.md
+docker-compose.yaml
+
+# Contains emails, IPs, credential IDs
+audit_scraping.md
+guide_ruben.md
+post_doc_bio
+workflow_v2.json
+generate_workflow.py
+
+# Playwright cache
+.playwright-mcp/
+
+# OS
+.DS_Store
